@@ -1,4 +1,4 @@
-package main // was 'reposyn' before
+package main
 
 import (
 	"flag"
@@ -10,26 +10,28 @@ import (
 	"reposyn/internal/files" // needs to match your module name
 )
 
-func main() {
+func summarizeRepo(repoPath string) {
 	start := time.Now()
 	var config files.Config
 
-	flag.StringVar(&config.InputDir, "dir", "./repos/rust", "Directory to process")
+	config.TextExtensions = files.DefaultTextExtensions()
+	flag.StringVar(&config.InputDir, "dir", repoPath, "Directory to process")
 	flag.StringVar(&config.OutputFile, "out", "repo-synopsis.txt", "Output file path")
 	numCPU := runtime.NumCPU()
 	flag.IntVar(&config.NumWorkers, "workers", numCPU, fmt.Sprintf("Number of worker goroutines (default: %d)", numCPU))
 	flag.Parse()
-
-	config.TextExtensions = files.DefaultTextExtensions()
-
-	fmt.Printf("Starting file concatenation with %d workers...\n", config.NumWorkers)
-
 	if err := files.MergeFiles(config); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 
+	fmt.Printf("Starting file concatenation with %d workers...\n", config.NumWorkers)
+
 	fmt.Printf("Files successfully concatenated to %s\n", config.OutputFile)
 	elapsed := time.Since(start)
 	fmt.Printf("Operation took %s\n", elapsed)
+}
+
+func main() {
+	summarizeRepo("./repos/rust")
 }
