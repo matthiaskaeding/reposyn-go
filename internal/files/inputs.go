@@ -1,4 +1,4 @@
-package inputs
+package files
 
 import (
 	"bufio"
@@ -81,12 +81,9 @@ func LoadGitignore(repoPath string) (gitignore.Matcher, error) {
 func worker(jobs <-chan interface{}, wg *sync.WaitGroup, writer *bufio.Writer, writerMutex *sync.Mutex) {
 	defer wg.Done()
 
-	// Create a larger buffer for each worker
-	buf := make([]byte, fileBufferSize)
-
-	// Create a write buffer for batching writes
-	writeBuffer := strings.Builder{}
-	writeBuffer.Grow(fileBufferSize * 2) // Pre-allocate space
+	fileBuffer := make([]byte, fileBufferSize)
+	stringBuffer := strings.Builder{}
+	stringBuffer.Grow(fileBufferSize * 2) // Pre-allocate space
 
 	processFile := func(job FileJob) error {
 		file, err := os.Open(job.path)
@@ -95,14 +92,11 @@ func worker(jobs <-chan interface{}, wg *sync.WaitGroup, writer *bufio.Writer, w
 		}
 		defer file.Close()
 
-		// Write file header to buffer
-		writeBuffer.WriteString(fmt.Sprintf("\n<File = %v>\n", job.relPath))
-
-		// Read and buffer file contents
+		stringBuffer.WriteString(fmt.Sprintf("\n<File = %v>\n", job.relPath))
 		for {
-			n, err := file.Read(buf)
+			n, err := file.Read(fileBuffer)
 			if n > 0 {
-				writeBuffer.Write(buf[:n])
+				stringBuffer.Write(fileBuffer[:n])
 			}
 			if err == io.EOF {
 				break
@@ -111,8 +105,8 @@ func worker(jobs <-chan interface{}, wg *sync.WaitGroup, writer *bufio.Writer, w
 				return err
 			}
 		}
+		stringBuffer.WriteString(fmt.Sprintf("\n</File = %v>\n", job.relPath))
 
-		writeBuffer.WriteString(fmt.Sprintf("\n</File = %v>\n", job.relPath))
 		return nil
 	}
 
@@ -123,7 +117,6 @@ func worker(jobs <-chan interface{}, wg *sync.WaitGroup, writer *bufio.Writer, w
 				fmt.Fprintf(os.Stderr, "Error processing file %s: %v\n", j.path, err)
 			}
 		case BatchJob:
-			// Process batch of small files
 			for _, f := range j.files {
 				if err := processFile(f); err != nil {
 					fmt.Fprintf(os.Stderr, "Error processing file %s: %v\n", f.path, err)
@@ -131,31 +124,30 @@ func worker(jobs <-chan interface{}, wg *sync.WaitGroup, writer *bufio.Writer, w
 			}
 		}
 
-		// If buffer is getting full, flush it
-		if writeBuffer.Len() >= fileBufferSize {
+		// Flush buffer if full
+		if stringBuffer.Len() >= fileBufferSize {
 			writerMutex.Lock()
-			writer.WriteString(writeBuffer.String())
+			writer.WriteString(stringBuffer.String())
 			writerMutex.Unlock()
-			writeBuffer.Reset()
+			stringBuffer.Reset()
 		}
 	}
 
 	// Flush remaining content
-	if writeBuffer.Len() > 0 {
+	if stringBuffer.Len() > 0 {
 		writerMutex.Lock()
-		writer.WriteString(writeBuffer.String())
+		writer.WriteString(stringBuffer.String())
 		writerMutex.Unlock()
 	}
 }
 
-func ConcatenateFiles(config Config) error {
+func MergeFiles(config Config) error {
 	outFile, err := os.Create(config.OutputFile)
 	if err != nil {
 		return fmt.Errorf("error creating output file: %w", err)
 	}
 	defer outFile.Close()
 
-	// Use a larger buffer size for the writer
 	writer := bufio.NewWriterSize(outFile, fileBufferSize*2)
 	defer writer.Flush()
 
@@ -164,13 +156,12 @@ func ConcatenateFiles(config Config) error {
 		return err
 	}
 
-	// Create job channels
 	jobs := make(chan interface{}, jobChannelBuffer)
 
 	var writerMutex sync.Mutex
 	var wg sync.WaitGroup
 
-	// Start worker pool
+	// Start worker fill
 	for i := 0; i < config.NumWorkers; i++ {
 		wg.Add(1)
 		go worker(jobs, &wg, writer, &writerMutex)

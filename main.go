@@ -7,12 +7,12 @@ import (
 	"runtime"
 	"time"
 
-	"reposyn/internal/inputs" // needs to match your module name
+	"reposyn/internal/files" // needs to match your module name
 )
 
 func main() {
 	start := time.Now()
-	var config inputs.Config
+	var config files.Config
 
 	flag.StringVar(&config.InputDir, "dir", "./repos/rust", "Directory to process")
 	flag.StringVar(&config.OutputFile, "out", "repo-synopsis.txt", "Output file path")
@@ -20,11 +20,11 @@ func main() {
 	flag.IntVar(&config.NumWorkers, "workers", numCPU, fmt.Sprintf("Number of worker goroutines (default: %d)", numCPU))
 	flag.Parse()
 
-	config.TextExtensions = inputs.DefaultTextExtensions()
+	config.TextExtensions = files.DefaultTextExtensions()
 
 	fmt.Printf("Starting file concatenation with %d workers...\n", config.NumWorkers)
 
-	if err := inputs.ConcatenateFiles(config); err != nil {
+	if err := files.MergeFiles(config); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
