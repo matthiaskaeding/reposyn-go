@@ -1,7 +1,8 @@
-package gitrepo
+package main
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,7 +13,21 @@ import (
 )
 
 func mkrepo() error {
-	r, err := git.PlainInit("test_repos", false)
+	p := filepath.Join("repos", "dummy")
+	if _, err := os.Stat(p); err == nil {
+		if err := os.RemoveAll(p); err != nil {
+			return fmt.Errorf("failed to remove existing directory: %v", err)
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("error checking directory: %v", err)
+	}
+
+	err := os.MkdirAll(filepath.Join(p, "data"), 0755)
+	if err != nil {
+		fmt.Printf("Error making data folder: %v\n", err)
+		return err
+	}
+	r, err := git.PlainInit(p, false)
 	if err != nil {
 		fmt.Printf("Error initializing repository: %v\n", err)
 		return err
@@ -27,26 +42,16 @@ func mkrepo() error {
 
 	// Create some example files
 	files := map[string]string{
-		"README.md":     "This is a test repository\nCreated for testing purposes\n",
-		"example.txt":   "Some example content\nMultiple lines\nOf text\n",
-		"data/info.txt": "Information in a subdirectory\n",
+		"README.md": "This is a test repository\nCreated for testing purposes\n",
 	}
-	for i := 1; i < 100; i++ {
-		fn := fmt.Sprintf("data/info_%v.txt", i)
-		content := strings.Repeat("hello", i)
+	for i := 1; i < 10; i++ {
+		fn := filepath.Join("data", fmt.Sprintf("info_%v.txt", i))
+		content := strings.Repeat("hello\n", i)
 		files[fn] = content
 	}
 
 	for path, content := range files {
-		dir := filepath.Dir(path)
-		if dir != "." {
-			fullDir := filepath.Join("test_repos", dir)
-			if err := os.MkdirAll(fullDir, 0755); err != nil {
-				return fmt.Errorf("error creating directory %s: %v", fullDir, err)
-			}
-		}
-
-		fullPath := filepath.Join("test_repos", path)
+		fullPath := filepath.Join(p, path)
 		if err := os.WriteFile(fullPath, []byte(content), 0644); err != nil {
 			return fmt.Errorf("error writing file %s: %v", path, err)
 		}
@@ -59,8 +64,8 @@ func mkrepo() error {
 
 	_, err = w.Commit("Initial commit", &git.CommitOptions{
 		Author: &object.Signature{
-			Name:  "Your Name",
-			Email: "your@email.com",
+			Name:  "Some Name",
+			Email: "some@email.com",
 			When:  time.Now(),
 		},
 	})
@@ -76,4 +81,11 @@ func mkrepo() error {
 
 	fmt.Printf("Repository created")
 	return nil
+}
+
+func main() {
+	err := mkrepo()
+	if err != nil {
+		log.Panic(err)
+	}
 }
