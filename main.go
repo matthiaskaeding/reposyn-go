@@ -1,4 +1,4 @@
-package reposyn
+package main // was 'reposyn' before
 
 import (
 	"flag"
@@ -7,35 +7,29 @@ import (
 	"runtime"
 	"time"
 
-	"internal/inputs"
-)
-
-const (
-	fileBufferSize     = 256 * 1024
-	jobChannelBuffer   = 10000
-	smallFileThreshold = 32 * 1024
+	"reposyn/internal/inputs" // needs to match your module name
 )
 
 func main() {
 	start := time.Now()
 	var config inputs.Config
 
-	flag.StringVar(&config.inputDir, "dir", "./repos/rust", "Directory to process")
-	flag.StringVar(&inputs.config.outputFile, "out", "repo-synopsis.txt", "Output file path")
+	flag.StringVar(&config.InputDir, "dir", "./repos/rust", "Directory to process")
+	flag.StringVar(&config.OutputFile, "out", "repo-synopsis.txt", "Output file path")
 	numCPU := runtime.NumCPU()
-	flag.IntVar(&inputs.config.numWorkers, "workers", numCPU, fmt.Sprintf("Number of worker goroutines (default: %d)", numCPU))
+	flag.IntVar(&config.NumWorkers, "workers", numCPU, fmt.Sprintf("Number of worker goroutines (default: %d)", numCPU))
 	flag.Parse()
 
-	config.textExtensions = DefaultTextExtensions()
+	config.TextExtensions = inputs.DefaultTextExtensions()
 
-	fmt.Printf("Starting file concatenation with %d workers...\n", config.numWorkers)
+	fmt.Printf("Starting file concatenation with %d workers...\n", config.NumWorkers)
 
-	if err := ConcatenateFiles(config); err != nil {
+	if err := inputs.ConcatenateFiles(config); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 
-	fmt.Printf("Files successfully concatenated to %s\n", config.outputFile)
+	fmt.Printf("Files successfully concatenated to %s\n", config.OutputFile)
 	elapsed := time.Since(start)
 	fmt.Printf("Operation took %s\n", elapsed)
 }

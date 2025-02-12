@@ -9,7 +9,13 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/go-git/go-git/plumbing/format/gitignore"
+	"github.com/go-git/go-git/v5/plumbing/format/gitignore"
+)
+
+const (
+	fileBufferSize     = 256 * 1024
+	jobChannelBuffer   = 10000
+	smallFileThreshold = 32 * 1024
 )
 
 func DefaultTextExtensions() map[string]bool {
@@ -31,10 +37,10 @@ func DefaultTextExtensions() map[string]bool {
 }
 
 type Config struct {
-	inputDir       string
-	outputFile     string
-	textExtensions map[string]bool
-	numWorkers     int
+	InputDir       string
+	OutputFile     string
+	TextExtensions map[string]bool
+	NumWorkers     int
 }
 
 type FileJob struct {
@@ -143,7 +149,7 @@ func worker(jobs <-chan interface{}, wg *sync.WaitGroup, writer *bufio.Writer, w
 }
 
 func ConcatenateFiles(config Config) error {
-	outFile, err := os.Create(config.outputFile)
+	outFile, err := os.Create(config.OutputFile)
 	if err != nil {
 		return fmt.Errorf("error creating output file: %w", err)
 	}
@@ -153,7 +159,7 @@ func ConcatenateFiles(config Config) error {
 	writer := bufio.NewWriterSize(outFile, fileBufferSize*2)
 	defer writer.Flush()
 
-	matcher, err := LoadGitignore(config.inputDir)
+	matcher, err := LoadGitignore(config.InputDir)
 	if err != nil {
 		return err
 	}
@@ -165,7 +171,7 @@ func ConcatenateFiles(config Config) error {
 	var wg sync.WaitGroup
 
 	// Start worker pool
-	for i := 0; i < config.numWorkers; i++ {
+	for i := 0; i < config.NumWorkers; i++ {
 		wg.Add(1)
 		go worker(jobs, &wg, writer, &writerMutex)
 	}
@@ -175,12 +181,12 @@ func ConcatenateFiles(config Config) error {
 	var currentBatchSize int64
 
 	// Walk directory and send jobs
-	err = filepath.Walk(config.inputDir, func(path string, info os.FileInfo, err error) error {
+	err = filepath.Walk(config.InputDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() {
 			return err
 		}
 
-		relPath, err := filepath.Rel(config.inputDir, path)
+		relPath, err := filepath.Rel(config.InputDir, path)
 		if err != nil {
 			return fmt.Errorf("error getting relative path: %w", err)
 		}
@@ -190,7 +196,7 @@ func ConcatenateFiles(config Config) error {
 		}
 
 		ext := strings.ToLower(filepath.Ext(path))
-		if !config.textExtensions[ext] {
+		if !config.TextExtensions[ext] {
 			return nil
 		}
 
