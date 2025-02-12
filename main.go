@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -11,20 +12,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/go-git/go-git/v5/plumbing/format/gitignore"
+	"github.com/go-git/go-git/plumbing/format/gitignore"
 )
 
-type Config struct {
-	inputDir       string
-	outputFile     string
-	textExtensions map[string]bool
-	numWorkers     int
-}
-
-type FileJob struct {
-	path    string
-	relPath string
-}
+const (
+	fileBufferSize     = 256 * 1024
+	jobChannelBuffer   = 10000
+	smallFileThreshold = 32 * 1024
+)
 
 func DefaultTextExtensions() map[string]bool {
 	return map[string]bool{
@@ -42,6 +37,24 @@ func DefaultTextExtensions() map[string]bool {
 		".conf": true,
 		".toml": true,
 	}
+}
+
+type Config struct {
+	inputDir       string
+	outputFile     string
+	textExtensions map[string]bool
+	numWorkers     int
+}
+
+type FileJob struct {
+	path    string
+	relPath string
+	size    int64
+}
+
+type BatchJob struct {
+	files []FileJob
+	size  int64
 }
 
 func LoadGitignore(repoPath string) (gitignore.Matcher, error) {
@@ -68,82 +81,112 @@ func LoadGitignore(repoPath string) (gitignore.Matcher, error) {
 	return gitignore.NewMatcher(patterns), nil
 }
 
-// worker processes files and writes directly to the output file
-func worker(jobs <-chan FileJob, wg *sync.WaitGroup, writer *bufio.Writer, writerMutex *sync.Mutex) {
+func worker(jobs <-chan interface{}, wg *sync.WaitGroup, writer *bufio.Writer, writerMutex *sync.Mutex) {
 	defer wg.Done()
 
-	// Create a buffer for each worker
-	buf := make([]byte, 32*1024) // 32KB buffer
+	// Create a larger buffer for each worker
+	buf := make([]byte, fileBufferSize)
 
-	for job := range jobs {
-		// Open and read file
+	// Create a write buffer for batching writes
+	writeBuffer := strings.Builder{}
+	writeBuffer.Grow(fileBufferSize * 2) // Pre-allocate space
+
+	processFile := func(job FileJob) error {
 		file, err := os.Open(job.path)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error opening file %s: %v\n", job.path, err)
-			continue
+			return err
 		}
+		defer file.Close()
 
-		// Acquire lock and write file header
-		writerMutex.Lock()
-		fmt.Fprintf(writer, fmt.Sprintf("\n<File = %v>\n", job.relPath), job.relPath)
-		writerMutex.Unlock()
+		// Write file header to buffer
+		writeBuffer.WriteString(fmt.Sprintf("\n<File = %v>\n", job.relPath))
 
-		// Read and write file contents in chunks
+		// Read and buffer file contents
 		for {
 			n, err := file.Read(buf)
 			if n > 0 {
-				writerMutex.Lock()
-				writer.Write(buf[:n])
-				writerMutex.Unlock()
+				writeBuffer.Write(buf[:n])
+			}
+			if err == io.EOF {
+				break
 			}
 			if err != nil {
-				break
+				return err
 			}
 		}
 
-		fmt.Fprintf(writer, fmt.Sprintf("\n</File = %v>\n", job.relPath), job.relPath)
-		file.Close()
+		writeBuffer.WriteString(fmt.Sprintf("\n</File = %v>\n", job.relPath))
+		return nil
+	}
+
+	for job := range jobs {
+		switch j := job.(type) {
+		case FileJob:
+			if err := processFile(j); err != nil {
+				fmt.Fprintf(os.Stderr, "Error processing file %s: %v\n", j.path, err)
+			}
+		case BatchJob:
+			// Process batch of small files
+			for _, f := range j.files {
+				if err := processFile(f); err != nil {
+					fmt.Fprintf(os.Stderr, "Error processing file %s: %v\n", f.path, err)
+				}
+			}
+		}
+
+		// If buffer is getting full, flush it
+		if writeBuffer.Len() >= fileBufferSize {
+			writerMutex.Lock()
+			writer.WriteString(writeBuffer.String())
+			writerMutex.Unlock()
+			writeBuffer.Reset()
+		}
+	}
+
+	// Flush remaining content
+	if writeBuffer.Len() > 0 {
+		writerMutex.Lock()
+		writer.WriteString(writeBuffer.String())
+		writerMutex.Unlock()
 	}
 }
 
 func ConcatenateFiles(config Config) error {
-	// Create output file
 	outFile, err := os.Create(config.outputFile)
 	if err != nil {
 		return fmt.Errorf("error creating output file: %w", err)
 	}
 	defer outFile.Close()
 
-	writer := bufio.NewWriter(outFile)
+	// Use a larger buffer size for the writer
+	writer := bufio.NewWriterSize(outFile, fileBufferSize*2)
 	defer writer.Flush()
 
-	// Load .gitignore patterns
 	matcher, err := LoadGitignore(config.inputDir)
 	if err != nil {
 		return err
 	}
 
-	// Create a buffered channel for jobs
-	jobs := make(chan FileJob, 1000)
+	// Create job channels
+	jobs := make(chan interface{}, jobChannelBuffer)
 
-	// Create mutex for synchronized writing
 	var writerMutex sync.Mutex
+	var wg sync.WaitGroup
 
 	// Start worker pool
-	var wg sync.WaitGroup
 	for i := 0; i < config.numWorkers; i++ {
 		wg.Add(1)
 		go worker(jobs, &wg, writer, &writerMutex)
 	}
 
+	// Collect small files for batching
+	var currentBatch []FileJob
+	var currentBatchSize int64
+
 	// Walk directory and send jobs
 	err = filepath.Walk(config.inputDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
+		if err != nil || info.IsDir() {
 			return err
-		}
-
-		if info.IsDir() {
-			return nil
 		}
 
 		relPath, err := filepath.Rel(config.inputDir, path)
@@ -160,14 +203,36 @@ func ConcatenateFiles(config Config) error {
 			return nil
 		}
 
-		jobs <- FileJob{
+		fileJob := FileJob{
 			path:    path,
 			relPath: relPath,
+			size:    info.Size(),
 		}
+
+		// Batch small files together
+		if info.Size() <= smallFileThreshold {
+			currentBatch = append(currentBatch, fileJob)
+			currentBatchSize += info.Size()
+
+			// Send batch if it's full
+			if currentBatchSize >= fileBufferSize {
+				jobs <- BatchJob{files: currentBatch, size: currentBatchSize}
+				currentBatch = make([]FileJob, 0, 100)
+				currentBatchSize = 0
+			}
+		} else {
+			// Send large files individually
+			jobs <- fileJob
+		}
+
 		return nil
 	})
 
-	// Close jobs channel and wait for workers to finish
+	// Send remaining batch if any
+	if len(currentBatch) > 0 {
+		jobs <- BatchJob{files: currentBatch, size: currentBatchSize}
+	}
+
 	close(jobs)
 	wg.Wait()
 
@@ -178,19 +243,16 @@ func main() {
 	start := time.Now()
 	var config Config
 
-	// Parse command line flags
-	flag.StringVar(&config.inputDir, "dir", "./repos/ripgrep", "Directory to process")
+	flag.StringVar(&config.inputDir, "dir", "./repos/rust", "Directory to process")
 	flag.StringVar(&config.outputFile, "out", "repo-synopsis.txt", "Output file path")
 	numCPU := runtime.NumCPU()
 	flag.IntVar(&config.numWorkers, "workers", numCPU, fmt.Sprintf("Number of worker goroutines (default: %d)", numCPU))
 	flag.Parse()
 
-	// Set up default text extensions
 	config.textExtensions = DefaultTextExtensions()
 
 	fmt.Printf("Starting file concatenation with %d workers...\n", config.numWorkers)
 
-	// Process files
 	if err := ConcatenateFiles(config); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -199,5 +261,4 @@ func main() {
 	fmt.Printf("Files successfully concatenated to %s\n", config.outputFile)
 	elapsed := time.Since(start)
 	fmt.Printf("Operation took %s\n", elapsed)
-
 }
