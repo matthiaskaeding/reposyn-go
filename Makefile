@@ -19,7 +19,8 @@ build-release:
 	cargo build --release
 
 run:
-	go run main.go
+	go run reposyn.go
+	ls -lh | grep repo-synopsis.txt
 	head -n 30 repo-synopsis.txt
 
 
