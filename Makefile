@@ -14,8 +14,12 @@ RIPGREP_COMMIT := e2362d4d5185d02fa857bf381e7bd52e66fafc73
 get-repos:
 	git clone https://github.com/psf/requests.git
 
-build-release:
-	cargo build --release
+build:
+	go build -o reposyn
+
+install:
+	go build -o reposyn
+	cp reposyn $(shell go env GOPATH)/bin/
 
 run:
 	go run reposyn.go

@@ -14,7 +14,8 @@ func InputContext(config Config) error {
 <context>
 You are an expert software engineer who receives a summary of the repo "%s".
 Think about the contents and understand what the repo does.
-</context>`, repoName)
+</context>
+`, repoName)
 
 	file, err := os.OpenFile(config.OutputFile, os.O_APPEND|os.O_WRONLY, 0644)
 	if err != nil {

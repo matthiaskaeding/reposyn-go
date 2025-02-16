@@ -10,7 +10,7 @@ import (
 )
 
 func TestHelloName(t *testing.T) {
-	summarizeRepo("./repos/dummy")
+	summarizeRepo("./repos/dummy", "repo-synopsis.txt", false)
 	contentByte, err := os.ReadFile("repo-synopsis.txt")
 	if err != nil {
 		log.Fatal(err)

@@ -40,6 +40,7 @@ type Config struct {
 	TextExtensions map[string]bool
 	NumWorkers     int
 	RepoPath       string
+	Clipboard      bool
 }
 
 type FileJob struct {
