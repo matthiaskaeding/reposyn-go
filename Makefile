@@ -1,4 +1,3 @@
-
 # Repository URLs and configurations
 RUST_REPO_URL := https://github.com/rust-lang/rust.git
 RUST_FOLDER := tests/repos/rust
@@ -22,11 +21,6 @@ run:
 	go run reposyn.go
 	ls -lh | grep repo-synopsis.txt
 	head -n 30 repo-synopsis.txt
-
-
-lint:
-	cargo fmt --all -- --check
-	cargo clippy -- -D warnings
 
 clean:
 	rm -f repo-synopsis.txt

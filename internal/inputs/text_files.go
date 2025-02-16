@@ -8,8 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-
-	"github.com/go-git/go-git/v5/plumbing/format/gitignore"
 )
 
 const (
@@ -41,6 +39,7 @@ type Config struct {
 	OutputFile     string
 	TextExtensions map[string]bool
 	NumWorkers     int
+	RepoPath       string
 }
 
 type FileJob struct {
@@ -52,30 +51,6 @@ type FileJob struct {
 type BatchJob struct {
 	files []FileJob
 	size  int64
-}
-
-func LoadGitignore(repoPath string) (gitignore.Matcher, error) {
-	patterns := make([]gitignore.Pattern, 0)
-	gitignorePath := filepath.Join(repoPath, ".gitignore")
-
-	if _, err := os.Stat(gitignorePath); err == nil {
-		file, err := os.Open(gitignorePath)
-		if err != nil {
-			return nil, fmt.Errorf("error opening .gitignore: %w", err)
-		}
-		defer file.Close()
-
-		scanner := bufio.NewScanner(file)
-		for scanner.Scan() {
-			line := strings.TrimSpace(scanner.Text())
-			if line != "" && !strings.HasPrefix(line, "#") {
-				pattern := gitignore.ParsePattern(line, nil)
-				patterns = append(patterns, pattern)
-			}
-		}
-	}
-
-	return gitignore.NewMatcher(patterns), nil
 }
 
 func worker(jobs <-chan interface{}, wg *sync.WaitGroup, writer *bufio.Writer, writerMutex *sync.Mutex) {
@@ -142,9 +117,9 @@ func worker(jobs <-chan interface{}, wg *sync.WaitGroup, writer *bufio.Writer, w
 }
 
 func MergeFiles(config Config) error {
-	outFile, err := os.Create(config.OutputFile)
+	outFile, err := os.OpenFile(config.OutputFile, os.O_APPEND|os.O_WRONLY, 0644)
 	if err != nil {
-		return fmt.Errorf("error creating output file: %w", err)
+		return fmt.Errorf("error opening output file: %w", err)
 	}
 	defer outFile.Close()
 
@@ -170,6 +145,8 @@ func MergeFiles(config Config) error {
 	// Collect small files for batching
 	var currentBatch []FileJob
 	var currentBatchSize int64
+
+	writer.WriteString("\n<Files>\n")
 
 	// Walk directory and send jobs
 	err = filepath.Walk(config.InputDir, func(path string, info os.FileInfo, err error) error {
@@ -223,6 +200,8 @@ func MergeFiles(config Config) error {
 
 	close(jobs)
 	wg.Wait()
+
+	writer.WriteString("\n</Files>")
 
 	return err
 }
