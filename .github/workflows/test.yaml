@@ -33,12 +33,3 @@ jobs:
 
       - name: Run tests
         run: go test -v -race -timeout 30s ./...
-
-      - name: Run tests with coverage
-        run: go test -race -coverprofile=coverage.out -covermode=atomic ./...
-
-      - name: Upload coverage reports
-        uses: codecov/codecov-action@v3
-        with:
-          file: ./coverage.out
-          flags: unittests
