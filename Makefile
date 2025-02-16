@@ -29,6 +29,10 @@ run:
 clean:
 	rm -f repo-synopsis.txt
 
+test:
+	go vet
+	go test
+
 # Test repository setup
 test-setup-rust:
 	@echo "Setting up Rust test repository..."

@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"runtime"
+	"strings"
 	"time"
 
 	"reposyn/internal/inputs"
@@ -15,7 +16,9 @@ import (
 )
 
 // Main function, create the repo summary and writes to destination
-func summarizeRepo(targetDir string, outputFile string, wantClipboard bool) error {
+func summarizeRepo(targetDir string, outputFile string, wantClipboard bool,
+	ignore string, summary string) error {
+
 	start := time.Now()
 
 	repoPath, err := inputs.FindGitRoot(targetDir)
@@ -46,12 +49,14 @@ func summarizeRepo(targetDir string, outputFile string, wantClipboard bool) erro
 	}
 
 	config := inputs.Config{
-		InputDir:       repoPath,
-		OutputFile:     outputFile,
-		TextExtensions: inputs.DefaultTextExtensions(),
-		NumWorkers:     runtime.NumCPU(),
-		RepoPath:       repoPath,
-		Clipboard:      wantClipboard,
+		InputDir:        repoPath,
+		OutputFile:      outputFile,
+		TextExtensions:  inputs.DefaultTextExtensions(),
+		NumWorkers:      runtime.NumCPU(),
+		RepoPath:        repoPath,
+		Clipboard:       wantClipboard,
+		IgnorePatterns:  strings.Split(ignore, ","),
+		SummaryPatterns: strings.Split(summary, ","),
 	}
 
 	inputs.InputRepoStats(config)
@@ -97,19 +102,33 @@ func main() {
 				Value:   "repo-synopsis.txt",
 				Usage:   "Output text file",
 			},
+			&cli.StringFlag{
+				Name:    "ignore",
+				Aliases: []string{"i"},
+				Value:   "",
+				Usage:   "Comma seperated pattern for ignoring files e.g., '*.csv,*.json' ",
+			},
+			&cli.StringFlag{
+				Name:    "summary",
+				Aliases: []string{"s"},
+				Value:   "",
+				Usage:   "Comma seperated pattern for summarizing files e.g., '*.csv,*.json' ",
+			},
 			&cli.BoolFlag{
 				Name:    "clipboard",
 				Aliases: []string{"c"},
 				Value:   false,
-				Usage:   "Write output to clipboard",
+				Usage:   "Write output to clipboard, will ignore output argument if set",
 			},
 		},
 		Action: func(ctx context.Context, c *cli.Command) error {
 			target := c.String("target")
 			output := c.String("output")
 			clipboard := c.Bool("clipboard")
+			ignore := c.String("ignore")
+			summary := c.String("summary")
 
-			err := summarizeRepo(target, output, clipboard)
+			err := summarizeRepo(target, output, clipboard, ignore, summary)
 			if err != nil {
 				return fmt.Errorf("failed to summarize repo: %w", err)
 			}

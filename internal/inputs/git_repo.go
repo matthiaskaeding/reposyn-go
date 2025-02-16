@@ -41,8 +41,9 @@ func FindGitRoot(startDir string) (string, error) {
 	}
 }
 
-func LoadGitignore(repoPath string) (gitignore.Matcher, error) {
+func LoadGitignore(config Config) (gitignore.Matcher, error) {
 	patterns := make([]gitignore.Pattern, 0)
+	repoPath := config.RepoPath
 	gitignorePath := filepath.Join(repoPath, ".gitignore")
 
 	if _, err := os.Stat(gitignorePath); err == nil {
@@ -60,14 +61,17 @@ func LoadGitignore(repoPath string) (gitignore.Matcher, error) {
 				patterns = append(patterns, pattern)
 			}
 		}
+	}
 
+	for _, s := range config.IgnorePatterns {
+		pattern := gitignore.ParsePattern(s, nil)
+		patterns = append(patterns, pattern)
 	}
 
 	return gitignore.NewMatcher(patterns), nil
 }
 
 func InputRepoStats(config Config) error {
-	// Find and open repo
 	repo, err := git.PlainOpen(config.RepoPath)
 	if err != nil {
 		return fmt.Errorf("error opening repository: %w", err)
@@ -156,4 +160,14 @@ func InputRepoStats(config Config) error {
 	}
 
 	return nil
+}
+
+func MakeSummaryMatcher(config Config) (gitignore.Matcher, error) {
+	patterns := make([]gitignore.Pattern, 0)
+	for _, s := range config.SummaryPatterns {
+		pattern := gitignore.ParsePattern(s, nil)
+		patterns = append(patterns, pattern)
+	}
+
+	return gitignore.NewMatcher(patterns), nil
 }

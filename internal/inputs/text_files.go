@@ -35,18 +35,21 @@ func DefaultTextExtensions() map[string]bool {
 }
 
 type Config struct {
-	InputDir       string
-	OutputFile     string
-	TextExtensions map[string]bool
-	NumWorkers     int
-	RepoPath       string
-	Clipboard      bool
+	InputDir        string
+	OutputFile      string
+	TextExtensions  map[string]bool
+	NumWorkers      int
+	RepoPath        string
+	Clipboard       bool
+	IgnorePatterns  []string
+	SummaryPatterns []string
 }
 
 type FileJob struct {
-	path    string
-	relPath string
-	size    int64
+	path      string
+	relPath   string
+	size      int64
+	summarize bool
 }
 
 type BatchJob struct {
@@ -67,22 +70,25 @@ func worker(jobs <-chan interface{}, wg *sync.WaitGroup, writer *bufio.Writer, w
 			return err
 		}
 		defer file.Close()
-
-		stringBuffer.WriteString(fmt.Sprintf("\n<File = %v>\n", job.relPath))
-		for {
-			n, err := file.Read(fileBuffer)
-			if n > 0 {
-				stringBuffer.Write(fileBuffer[:n])
+		if !job.summarize {
+			// Just write whole file to buffer
+			stringBuffer.WriteString(fmt.Sprintf("\n<File = %v>\n", job.relPath))
+			for {
+				n, err := file.Read(fileBuffer)
+				if n > 0 {
+					stringBuffer.Write(fileBuffer[:n])
+				}
+				if err == io.EOF {
+					break
+				}
+				if err != nil {
+					return err
+				}
 			}
-			if err == io.EOF {
-				break
-			}
-			if err != nil {
-				return err
-			}
+			stringBuffer.WriteString(fmt.Sprintf("\n</File = %v>\n", job.relPath))
+		} else {
+			WriteFileSummary(job.path, job.relPath, &stringBuffer)
 		}
-		stringBuffer.WriteString(fmt.Sprintf("\n</File = %v>\n", job.relPath))
-
 		return nil
 	}
 
@@ -127,7 +133,12 @@ func MergeFiles(config Config) error {
 	writer := bufio.NewWriterSize(outFile, fileBufferSize*2)
 	defer writer.Flush()
 
-	matcher, err := LoadGitignore(config.InputDir)
+	matcher, err := LoadGitignore(config)
+	if err != nil {
+		return err
+	}
+
+	summaryMatcher, err := MakeSummaryMatcher(config)
 	if err != nil {
 		return err
 	}
@@ -169,10 +180,13 @@ func MergeFiles(config Config) error {
 			return nil
 		}
 
+		shouldBeSummarized := summaryMatcher.Match(strings.Split(relPath, string(os.PathSeparator)), false)
+
 		fileJob := FileJob{
-			path:    path,
-			relPath: relPath,
-			size:    info.Size(),
+			path:      path,
+			relPath:   relPath,
+			size:      info.Size(),
+			summarize: shouldBeSummarized,
 		}
 
 		// Batch small files together

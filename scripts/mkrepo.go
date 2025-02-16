@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/go-git/go-git/v5"
-	"github.com/go-git/go-git/v5/plumbing/object" // Changed this import path to include v5	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing/object"
 )
 
 func mkrepo() error {
@@ -27,6 +27,7 @@ func mkrepo() error {
 		fmt.Printf("Error making data folder: %v\n", err)
 		return err
 	}
+
 	r, err := git.PlainInit(p, false)
 	if err != nil {
 		fmt.Printf("Error initializing repository: %v\n", err)
@@ -43,7 +44,33 @@ func mkrepo() error {
 	// Create some example files
 	files := map[string]string{
 		"README.md": "This is a test repository\nCreated for testing purposes\n",
+		"config.json": `{
+    "version": "1.0.0",
+    "settings": {
+        "debug": false,
+        "maxItems": 100,
+        "features": ["logging", "metrics", "alerts"],
+        "database": {
+            "host": "localhost",
+            "port": 5432,
+            "name": "testdb"
+        }
+    },
+    "users": [
+        {
+            "id": 1,
+            "name": "Test User",
+            "role": "admin"
+        },
+        {
+            "id": 2,
+            "name": "Regular User",
+            "role": "user"
+        }
+    ]
+}`,
 	}
+
 	for i := 1; i < 10; i++ {
 		fn := filepath.Join("data", fmt.Sprintf("info_%v.txt", i))
 		content := strings.Repeat("hello\n", i)
@@ -55,7 +82,6 @@ func mkrepo() error {
 		if err := os.WriteFile(fullPath, []byte(content), 0644); err != nil {
 			return fmt.Errorf("error writing file %s: %v", path, err)
 		}
-
 		_, err = w.Add(path)
 		if err != nil {
 			return fmt.Errorf("error adding file %s: %v", path, err)
@@ -74,7 +100,7 @@ func mkrepo() error {
 		return err
 	}
 
-	fmt.Printf("Repository created\n")
+	fmt.Printf("Repository created with config.json\n")
 	return nil
 }
 
