@@ -74,12 +74,7 @@ func mkrepo() error {
 		return err
 	}
 
-	if err != nil {
-		fmt.Printf("Error creating commit: %v\n", err)
-		return err
-	}
-
-	fmt.Printf("Repository created")
+	fmt.Printf("Repository created\n")
 	return nil
 }
 

@@ -2,7 +2,7 @@ name: Go Tests
 
 on:
   push:
-    branches: main
+    branches: [main]
   pull_request:
 
 jobs:
@@ -27,6 +27,9 @@ jobs:
 
       - name: Run vet
         run: go vet ./...
+
+      - name: Make test repo
+        run: go run scripts/mkrepo.go
 
       - name: Run tests
         run: go test -v -race -timeout 30s ./...
