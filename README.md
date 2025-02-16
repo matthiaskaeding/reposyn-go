@@ -1,1 +1,1 @@
-# reposyn - CLI for AI friendly summary
+# reposyn - CLI for AI friendly summaries
